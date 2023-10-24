@@ -9,12 +9,17 @@
 #include "client.h"
 
 #include "sns.grpc.pb.h"
+#include "coordinator.grpc.pb.h"
+
 using grpc::Channel;
 using grpc::ClientContext;
 using grpc::ClientReader;
 using grpc::ClientReaderWriter;
 using grpc::ClientWriter;
 using grpc::Status;
+using csce662c::ServerInfo;
+using csce662c::CoordService;
+using csce662c::ID;
 using csce662::Message;
 using csce662::ListReply;
 using csce662::Request;
@@ -82,10 +87,25 @@ int Client::connectTo()
   // a member variable in your own Client class.
   // Please refer to gRpc tutorial how to create a stub.
   // ------------------------------------------------------------
-  std::string login_info = hostname + ":" + port;
-    stub_ = std::unique_ptr<SNSService::Stub>(SNSService::NewStub(
-			       grpc::CreateChannel(
-			      login_info, grpc::InsecureChannelCredentials())));
+  // std::cout << "Connecting to coordinator\n";
+  std::string coord_info = hostname + ":" + port;
+  auto coord_stub = std::unique_ptr<CoordService::Stub>(CoordService::NewStub(
+    grpc::CreateChannel(coord_info, grpc::InsecureChannelCredentials())));
+
+  ClientContext context;
+  ServerInfo info;
+  ID id;
+  id.set_id(stoi(username));
+
+  Status status = coord_stub->GetServer(&context, id, &info);
+  if(status.ok() && info.clusterid() == -1) {
+    return -1;
+  }
+
+  std::string login_info = info.hostname() + ":" + info.port();
+  // std::cout << "Server: " + login_info;
+  stub_ = std::unique_ptr<SNSService::Stub>(SNSService::NewStub(
+		grpc::CreateChannel(login_info, grpc::InsecureChannelCredentials())));
     
     IReply ire = Login();
     if(!ire.grpc_status.ok() || (ire.comm_status == FAILURE_ALREADY_EXISTS)) {
@@ -145,7 +165,7 @@ IReply Client::processCommand(std::string& input)
 
   IReply ire;
   std::size_t index = input.find_first_of(" ");
-  std::cout << "Processing "+input + ". ";
+  // std::cout << "Processing "+input + ". ";
   if (index != std::string::npos) {
     std::string cmd = input.substr(0, index);
     
@@ -166,7 +186,8 @@ IReply Client::processCommand(std::string& input)
     if (input == "LIST") {
       return List();
     } else if (input == "TIMELINE") {
-      ire.comm_status = SUCCESS;
+      ire = List();
+      //ire.comm_status = SUCCESS;
       return ire;
     }
   }
@@ -220,16 +241,16 @@ IReply Client::List() {
 
     //Loop through list_reply.all_users and list_reply.following_users
     //Print out the name of each room
-    if(status.ok()){
-        ire.comm_status = SUCCESS;
-        std::string all_users;
-        std::string following_users;
-        for(std::string s : list_reply.all_users()){
-            ire.all_users.push_back(s);
-        }
-        for(std::string s : list_reply.followers()){
-            ire.followers.push_back(s);
-        }
+    if(status.ok()) {
+      ire.comm_status = SUCCESS;
+      std::string all_users;
+      std::string following_users;
+      for(std::string s : list_reply.all_users()){
+        ire.all_users.push_back(s);
+      }
+      for(std::string s : list_reply.followers()){
+        ire.followers.push_back(s);
+      }
     }
     return ire;
 }
@@ -349,13 +370,13 @@ int main(int argc, char** argv) {
   std::string port = "3010";
     
   int opt = 0;
-  while ((opt = getopt(argc, argv, "h:u:p:")) != -1){
+  while ((opt = getopt(argc, argv, "h:u:k:")) != -1){
     switch(opt) {
     case 'h':
       hostname = optarg;break;
     case 'u':
       username = optarg;break;
-    case 'p':
+    case 'k':
       port = optarg;break;
     default:
       std::cout << "Invalid Command Line Argument\n";

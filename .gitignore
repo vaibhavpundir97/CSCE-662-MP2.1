@@ -2,3 +2,5 @@
 *.h
 *.pb.cc
 *.zip
+*.txt
+.vscode

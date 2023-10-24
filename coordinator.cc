@@ -77,7 +77,7 @@ class CoordServiceImpl final : public CoordService::Service {
   
   Status Heartbeat(ServerContext* context, const ServerInfo* serverinfo, Confirmation* confirmation) override {
     std::cout << "Got Heartbeat! clusterid: " << serverinfo->clusterid() << ", " << serverinfo->type() 
-    << "(id: " << serverinfo->serverid() << ")" << std::endl;
+    << "(serverid: " << serverinfo->serverid() << ")" << std::endl;
 
     // Your code here
     zNode* server = findServer(serverinfo->clusterid(), serverinfo->serverid());
@@ -93,16 +93,36 @@ class CoordServiceImpl final : public CoordService::Service {
   //hardcoded to represent this.
   Status GetServer(ServerContext* context, const ID* id, ServerInfo* serverinfo) override {
     std::cout<<"Got GetServer for clientID: "<<id->id()<<std::endl;
-    int serverID = (id->id()%3)+1;
+    int clusterID = ((id->id() - 1) % 3) + 1;
+    int serverID = 1;
 
     // Your code here
     // If server is active, return serverinfo
-     
+    zNode* s = findServer(clusterID, serverID);
+    if(s->isActive()) {
+      serverinfo->set_clusterid(serverID);
+      serverinfo->set_serverid(serverID);
+      serverinfo->set_hostname(s->hostname);
+      serverinfo->set_port(s->port);
+      serverinfo->set_type(s->type);
+    } else {
+      serverinfo->set_clusterid(-1);
+    }
     return Status::OK;
   }
 
   Status Create(ServerContext* context, const ServerInfo* serverinfo, Confirmation* confirmation) override {
-    zNode* s = new zNode();
+    zNode* s = findServer(serverinfo->clusterid(), serverinfo->clusterid());
+    if(s) {
+      if(s->isActive()) {
+        confirmation->set_status(false);
+      } else {
+        confirmation->set_status(true);
+      }
+      return Status::OK;
+    }
+
+    s = new zNode();
     s->serverID = serverinfo->serverid();
     s->hostname = serverinfo->hostname();
     s->port = serverinfo->port();
@@ -121,9 +141,15 @@ class CoordServiceImpl final : public CoordService::Service {
         cluster3.push_back(s);
         break;
     }
+    confirmation->set_status(true);
     return Status::OK;
   }
-  
+
+  Status Exists(ServerContext* context, const ServerInfo* serverinfo, Confirmation* confirmation) override {
+    // zNode* s = findServer(serverinfo->clusterid(), serverinfo->serverid());
+    // if(s && s->isActive())
+    return Status::OK;
+  }
 
 };
 

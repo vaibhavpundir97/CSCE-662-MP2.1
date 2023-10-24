@@ -13,6 +13,7 @@ service CoordService{
   rpc GetServer (ID) returns (ServerInfo) {}
   // ZooKeeper API here
   rpc Create (ServerInfo) returns (Confirmation) {}
+  rpc Exists (ServerInfo) returns (Confirmation) {}
 }
 
 //server info message definition

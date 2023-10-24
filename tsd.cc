@@ -114,16 +114,15 @@ void keep_alive(int cluster_id, int server_id, std::string coord_ip, std::string
     info.set_port(port_no);
     info.set_type("master");
 
-    conf.set_status(true);
     // send keep alive messages every three seconds
     log(INFO, "sending heartbeat...");
     Status status = coord_stub->Heartbeat(&context, info, &conf);
-    sleep(3);
+    sleep(5);
   }
   return;
 }
 
-void register_server_with_coordinator(int cluster_id, int server_id, std::string coord_ip,
+bool register_server_with_coordinator(int cluster_id, int server_id, std::string coord_ip,
                                       std::string coord_port, std::string port_no) {
   // create coordinator stub
   std::string login_info = coord_ip + ":" + coord_port;
@@ -143,11 +142,17 @@ void register_server_with_coordinator(int cluster_id, int server_id, std::string
   Status status = coord_stub->Create(&context, info, &conf);
 
   if(status.ok()) {
-    log(INFO, "Registered server: localhost:" + port_no);
-    std::thread ka(keep_alive, cluster_id, server_id, coord_ip, coord_port, port_no);
-    ka.detach();
+    if(conf.status()) {
+      log(INFO, "Registered server: localhost:" + port_no);
+      std::thread ka(keep_alive, cluster_id, server_id, coord_ip, coord_port, port_no);
+      ka.detach();
+      return true;
+    } else {
+      log(ERROR, "Server is already registered and active...");
+      return false;
+    }
   }
-  return;
+  return false;
 }
 
 class SNSServiceImpl final : public SNSService::Service {
@@ -261,12 +266,13 @@ class SNSServiceImpl final : public SNSService::Service {
       if(message.msg() != "Set Stream")
         user_file << fileinput;
       //If message = "Set Stream", print the first 20 chats from the people you follow
-      else{
+      else {
         if(c->stream==0)
       	  c->stream = stream;
         std::string line;
         std::vector<std::string> newest_twenty;
         std::ifstream in(username+"following.txt");
+        // std::ifstream in(username+".txt");
         int count = 0;
         //Read the last up-to-20 lines (newest 20 messages) from userfollowing.txt
         while(getline(in, line)){
@@ -279,34 +285,35 @@ class SNSServiceImpl final : public SNSService::Service {
           newest_twenty.push_back(line);
         }
         Message new_msg; 
- 	//Send the newest messages to the client to be displayed
- 	if(newest_twenty.size() >= 40){ 	
-	    for(int i = newest_twenty.size()-40; i<newest_twenty.size(); i+=2){
-	       new_msg.set_msg(newest_twenty[i]);
-	       stream->Write(new_msg);
-	    }
-        }else{
-	    for(int i = 0; i<newest_twenty.size(); i+=2){
-	       new_msg.set_msg(newest_twenty[i]);
-	       stream->Write(new_msg);
-	    }
+ 	      //Send the newest messages to the client to be displayed
+        if(newest_twenty.size() >= 40) { 	
+          for(int i = newest_twenty.size()-40; i<newest_twenty.size(); i+=2) {
+            new_msg.set_msg(newest_twenty[i]);
+            stream->Write(new_msg);
+          }
+        } else {
+          for(int i = 0; i<newest_twenty.size(); i+=2) {
+            new_msg.set_msg(newest_twenty[i]);
+            stream->Write(new_msg);
+          }
         }
         //std::cout << "newest_twenty.size() " << newest_twenty.size() << std::endl; 
         continue;
       }
       //Send the message to each follower's stream
       std::vector<Client*>::const_iterator it;
-      for(it = c->client_followers.begin(); it!=c->client_followers.end(); it++){
+      for(it = c->client_followers.begin(); it!=c->client_followers.end(); it++) {
         Client *temp_client = *it;
       	if(temp_client->stream!=0 && temp_client->connected)
-	  temp_client->stream->Write(message);
+	        temp_client->stream->Write(message);
         //For each of the current user's followers, put the message in their following.txt file
         std::string temp_username = temp_client->username;
         std::string temp_file = temp_username + "following.txt";
-	std::ofstream following_file(temp_file,std::ios::app|std::ios::out|std::ios::in);
-	following_file << fileinput;
+        // std::string temp_file = temp_username + ".txt";
+	      std::ofstream following_file(temp_file,std::ios::app|std::ios::out|std::ios::in);
+	      following_file << fileinput;
         temp_client->following_file_size++;
-	std::ofstream user_file(temp_username + ".txt",std::ios::app|std::ios::out|std::ios::in);
+	      std::ofstream user_file(temp_username + ".txt",std::ios::app|std::ios::out|std::ios::in);
         user_file << fileinput;
       }
     }
@@ -328,7 +335,11 @@ void RunServer(int cluster_id, int server_id, std::string coord_ip, std::string 
   std::cout << "Server listening on " << server_address << std::endl;
   log(INFO, "Server listening on "+server_address);
 
-  register_server_with_coordinator(cluster_id, server_id, coord_ip, coord_port, port_no);
+  bool status = register_server_with_coordinator(cluster_id, server_id, coord_ip, coord_port, port_no);
+  if(!status) {
+    std::cout << "Exiting...\n";
+    return;
+  }
 
   server->Wait();
 }
