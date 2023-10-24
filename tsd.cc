@@ -126,8 +126,8 @@ void keep_alive(int cluster_id, int server_id, std::string coord_ip, std::string
      + "]" + "sending heartbeat...");
     // send heartbeat to the coordinator
     Status status = coord_stub->Heartbeat(&context, info, &conf);
-    // wait for 5 seconds before sending the next keep-alive message
-    sleep(5);
+    // wait for 3 seconds before sending the next keep-alive message
+    sleep(3);
   }
   return;
 }

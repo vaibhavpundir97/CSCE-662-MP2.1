@@ -391,7 +391,7 @@ int main(int argc, char** argv) {
   std::string log_file_name = std::string("client-") + port;
   google::InitGoogleLogging(log_file_name.c_str());
   log(INFO, "Logging Initialized. Server starting...");  
-  std::cout << "Logging Initialized. Client starting...";
+  std::cout << "Logging Initialized. Client starting...\n";
 
   Client myc(hostname, username, port);
   
