@@ -17,8 +17,8 @@
 #include <unistd.h>
 #include <google/protobuf/util/time_util.h>
 #include <grpc++/grpc++.h>
-//#include<glog/logging.h>
-//#define log(severity, msg) LOG(severity) << msg; google::FlushLogFiles(google::severity); 
+#include <glog/logging.h>
+#define log(severity, msg) LOG(severity) << msg; google::FlushLogFiles(google::severity);
 
 #include "coordinator.grpc.pb.h"
 
@@ -76,11 +76,14 @@ class CoordServiceImpl final : public CoordService::Service {
 
   
   Status Heartbeat(ServerContext* context, const ServerInfo* serverinfo, Confirmation* confirmation) override {
-    std::cout << "Got Heartbeat! clusterid: " << serverinfo->clusterid() << ", " << serverinfo->type() 
-    << "(serverid: " << serverinfo->serverid() << ")" << std::endl;
+    log(INFO, "[c_id:" + std::to_string(serverinfo->clusterid()) + "::" + 
+    serverinfo->type() + ":s_id:" + std::to_string(serverinfo->serverid()) + "] Got Heartbeat!");
 
     // Your code here
+    // get server object from the cluster
     zNode* server = findServer(serverinfo->clusterid(), serverinfo->serverid());
+    // update last_heartbeat and set missed_heartbeat as false
+    // locking since checkHeartbeat() function can modify the same parallelly
     v_mutex.lock();
     server->last_heartbeat = getTimeNow();
     server->missed_heartbeat = false;
@@ -92,36 +95,58 @@ class CoordServiceImpl final : public CoordService::Service {
   //this function assumes there are always 3 clusters and has math
   //hardcoded to represent this.
   Status GetServer(ServerContext* context, const ID* id, ServerInfo* serverinfo) override {
-    std::cout<<"Got GetServer for clientID: "<<id->id()<<std::endl;
+    log(INFO, "Got GetServer for clientID: " + std::to_string(id->id()));
+    // get clusterID based on cliendID
     int clusterID = ((id->id() - 1) % 3) + 1;
+    // since each cluster has only one server, serverID will be 1
     int serverID = 1;
 
     // Your code here
-    // If server is active, return serverinfo
+    // get server object from the cluster
     zNode* s = findServer(clusterID, serverID);
-    if(s->isActive()) {
-      serverinfo->set_clusterid(serverID);
-      serverinfo->set_serverid(serverID);
-      serverinfo->set_hostname(s->hostname);
-      serverinfo->set_port(s->port);
-      serverinfo->set_type(s->type);
+    if(s) {
+      // if server is active, return server info
+      if(s->isActive()) {
+        serverinfo->set_clusterid(serverID);
+        serverinfo->set_serverid(serverID);
+        serverinfo->set_hostname(s->hostname);
+        serverinfo->set_port(s->port);
+        serverinfo->set_type(s->type);
+      } else {
+        // server is inactive
+        serverinfo->set_clusterid(-1);
+        log(INFO, "No server alive for clientID: " + std::to_string(id->id()));
+      }
     } else {
+      // server not found
+      log(INFO, "Couldn't find server for clientID: " + std::to_string(id->id()));
       serverinfo->set_clusterid(-1);
     }
     return Status::OK;
   }
 
   Status Create(ServerContext* context, const ServerInfo* serverinfo, Confirmation* confirmation) override {
+    // check if server already exists
     zNode* s = findServer(serverinfo->clusterid(), serverinfo->clusterid());
     if(s) {
+      // if active, set confirmation as false
       if(s->isActive()) {
+        log(INFO, "[c_id:" + std::to_string(serverinfo->clusterid()) + "::s_id:" + 
+        std::to_string(serverinfo->serverid()) + "] Server already exists!");
         confirmation->set_status(false);
       } else {
+        // if inactive, the server is restarted after crash
+        log(INFO, "[c_id:" + std::to_string(serverinfo->clusterid()) + "::s_id:" + 
+        std::to_string(serverinfo->serverid()) + "] Server was inactive!");
         confirmation->set_status(true);
       }
       return Status::OK;
     }
 
+    // if server is not present
+    log(INFO, "[c_id:" + std::to_string(serverinfo->clusterid()) + "::s_id:" + 
+        std::to_string(serverinfo->serverid()) + "] Registering server!");
+    // create server object and add to the cluster
     s = new zNode();
     s->serverID = serverinfo->serverid();
     s->hostname = serverinfo->hostname();
@@ -189,6 +214,10 @@ int main(int argc, char** argv) {
 	std::cerr << "Invalid Command Line Argument\n";
     }
   }
+
+  std::string log_file_name = std::string("coordinator-") + port;
+  google::InitGoogleLogging(log_file_name.c_str());
+  log(INFO, "Logging Initialized. Server starting...");
   RunServer(port);
   return 0;
 }
@@ -201,7 +230,9 @@ void checkHeartbeat() {
     //if true turn missed heartbeat = true
     // Your code below
     //std::cout << "Check server heartbeats...\n";
+    // iterate over all the clusters
     for(auto& cluster: {&cluster1, &cluster2, &cluster3}) {
+      // iterate over all the servers in cluster
       for(auto& s : *cluster) {
         if(difftime(getTimeNow(), s->last_heartbeat) > 10) {
           if(!s->missed_heartbeat) {
@@ -231,6 +262,7 @@ zNode* findServer(int cluster_id, int server_id) {
 
   std::vector<zNode*> cluster;
 
+  // get cluster based on cluster id
   switch(cluster_id) {
     case 1:
       cluster = cluster1;
@@ -243,6 +275,7 @@ zNode* findServer(int cluster_id, int server_id) {
       break;
   }
 
+  // find server in cluster
   for(auto& server: cluster) {
     if(server->serverID == server_id)
       //std::cout << "Server object found!\n";

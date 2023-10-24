@@ -45,8 +45,8 @@
 #include <thread>
 #include <google/protobuf/util/time_util.h>
 #include <grpc++/grpc++.h>
-#include<glog/logging.h>
-#define log(severity, msg) LOG(severity) << msg; google::FlushLogFiles(google::severity); 
+#include <glog/logging.h>
+#define log(severity, msg) LOG(severity) << msg; google::FlushLogFiles(google::severity);
 
 #include "sns.grpc.pb.h"
 #include "coordinator.grpc.pb.h"
@@ -98,12 +98,19 @@ int find_user(std::string username){
 }
 
 void keep_alive(int cluster_id, int server_id, std::string coord_ip, std::string coord_port, std::string port_no) {
+  /*
+  send keep-alive messages to the coordinator
+  */
   // create coordinator stub
+  log(INFO, "[c_id:" + std::to_string(cluster_id) + "::s_id:" + std::to_string(server_id)
+   + "]" + "connecting to coordinator...");
   std::string login_info = coord_ip + ":" + coord_port;
+  // create coordinator stub
   auto coord_stub = std::unique_ptr<CoordService::Stub>(CoordService::NewStub(
     grpc::CreateChannel(login_info, grpc::InsecureChannelCredentials())));
 
   while (true) {
+    // set parameters
     ClientContext context;
     ServerInfo info;
     Confirmation conf;
@@ -115,8 +122,11 @@ void keep_alive(int cluster_id, int server_id, std::string coord_ip, std::string
     info.set_type("master");
 
     // send keep alive messages every three seconds
-    log(INFO, "sending heartbeat...");
+    log(INFO, "[c_id:" + std::to_string(cluster_id) + "::s_id:" + std::to_string(server_id)
+     + "]" + "sending heartbeat...");
+    // send heartbeat to the coordinator
     Status status = coord_stub->Heartbeat(&context, info, &conf);
+    // wait for 5 seconds before sending the next keep-alive message
     sleep(5);
   }
   return;
@@ -125,10 +135,13 @@ void keep_alive(int cluster_id, int server_id, std::string coord_ip, std::string
 bool register_server_with_coordinator(int cluster_id, int server_id, std::string coord_ip,
                                       std::string coord_port, std::string port_no) {
   // create coordinator stub
+  log(INFO, "[c_id:" + std::to_string(cluster_id) + "::s_id:" + std::to_string(server_id)
+   + "]" + "connecting to coordinator...");
   std::string login_info = coord_ip + ":" + coord_port;
   auto coord_stub = std::unique_ptr<CoordService::Stub>(CoordService::NewStub(
     grpc::CreateChannel(login_info, grpc::InsecureChannelCredentials())));
 
+  // set parameters
   ClientContext context;
   ServerInfo info;
   Confirmation conf;
@@ -139,16 +152,21 @@ bool register_server_with_coordinator(int cluster_id, int server_id, std::string
   info.set_port(port_no);
   info.set_type("master");
 
+  // invoke coordinator's create api to register server
   Status status = coord_stub->Create(&context, info, &conf);
 
   if(status.ok()) {
+    // if confirmation is true, server registered.
     if(conf.status()) {
-      log(INFO, "Registered server: localhost:" + port_no);
+      log(INFO, "[c_id:" + std::to_string(cluster_id) + "::s_id:" + std::to_string(server_id)
+       + "]" + "Registered server: localhost:" + port_no);
       std::thread ka(keep_alive, cluster_id, server_id, coord_ip, coord_port, port_no);
       ka.detach();
       return true;
     } else {
-      log(ERROR, "Server is already registered and active...");
+      // if confirmation is false, the server is already registered and active.
+      log(ERROR, "[c_id:" + std::to_string(cluster_id) + "::s_id:" + std::to_string(server_id)
+       + "]" + "Server is already registered and active...");
       return false;
     }
   }
@@ -335,7 +353,9 @@ void RunServer(int cluster_id, int server_id, std::string coord_ip, std::string 
   std::cout << "Server listening on " << server_address << std::endl;
   log(INFO, "Server listening on "+server_address);
 
+  // register server
   bool status = register_server_with_coordinator(cluster_id, server_id, coord_ip, coord_port, port_no);
+  // if server is already registered and alive, exit...
   if(!status) {
     std::cout << "Exiting...\n";
     return;

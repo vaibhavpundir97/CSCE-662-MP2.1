@@ -6,8 +6,10 @@
 #include <unistd.h>
 #include <csignal>
 #include <grpc++/grpc++.h>
-#include "client.h"
+#include <glog/logging.h>
+#define log(severity, msg) LOG(severity) << msg; google::FlushLogFiles(google::severity);
 
+#include "client.h"
 #include "sns.grpc.pb.h"
 #include "coordinator.grpc.pb.h"
 
@@ -87,7 +89,7 @@ int Client::connectTo()
   // a member variable in your own Client class.
   // Please refer to gRpc tutorial how to create a stub.
   // ------------------------------------------------------------
-  // std::cout << "Connecting to coordinator\n";
+  log(INFO, "[user:" + username + "] connecting to coordinator...");
   std::string coord_info = hostname + ":" + port;
   auto coord_stub = std::unique_ptr<CoordService::Stub>(CoordService::NewStub(
     grpc::CreateChannel(coord_info, grpc::InsecureChannelCredentials())));
@@ -97,13 +99,15 @@ int Client::connectTo()
   ID id;
   id.set_id(stoi(username));
 
+  // get server info from the coordinator
   Status status = coord_stub->GetServer(&context, id, &info);
   if(status.ok() && info.clusterid() == -1) {
     return -1;
   }
 
+  // create server stub
   std::string login_info = info.hostname() + ":" + info.port();
-  // std::cout << "Server: " + login_info;
+  log(INFO, "[user:" + username + "] got server: " + login_info);
   stub_ = std::unique_ptr<SNSService::Stub>(SNSService::NewStub(
 		grpc::CreateChannel(login_info, grpc::InsecureChannelCredentials())));
     
@@ -186,6 +190,7 @@ IReply Client::processCommand(std::string& input)
     if (input == "LIST") {
       return List();
     } else if (input == "TIMELINE") {
+      // before entering the timeline mode, check server status via list command
       ire = List();
       //ire.comm_status = SUCCESS;
       return ire;
@@ -382,9 +387,12 @@ int main(int argc, char** argv) {
       std::cout << "Invalid Command Line Argument\n";
     }
   }
-      
+
+  std::string log_file_name = std::string("client-") + port;
+  google::InitGoogleLogging(log_file_name.c_str());
+  log(INFO, "Logging Initialized. Server starting...");  
   std::cout << "Logging Initialized. Client starting...";
-  
+
   Client myc(hostname, username, port);
   
   //for(int i = 1; i <= 31; i++) 
