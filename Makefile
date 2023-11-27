@@ -31,15 +31,18 @@ GRPC_CPP_PLUGIN = grpc_cpp_plugin
 GRPC_CPP_PLUGIN_PATH ?= `which $(GRPC_CPP_PLUGIN)`
 PROTOS_PATH = .
 
-all: system-check tsc tsd coordinator 
+all: system-check tsc tsd coordinator synchronizer
 
-tsc: client.o coordinator.pb.o coordinator.grpc.pb.o sns.pb.o sns.grpc.pb.o tsc.o
+tsc: client.o sns.pb.o sns.grpc.pb.o tsc.o
 	$(CXX) $^ $(LDFLAGS) -g -o $@
 
-tsd: coordinator.pb.o coordinator.grpc.pb.o sns.pb.o sns.grpc.pb.o tsd.o
+tsd: sns.pb.o sns.grpc.pb.o tsd.o
 	$(CXX) $^ $(LDFLAGS) -g -o $@
 
-coordinator: coordinator.pb.o coordinator.grpc.pb.o coordinator.o
+coordinator: sns.pb.o sns.grpc.pb.o coordinator.o
+	$(CXX) $^ $(LDFLAGS) -g -o $@
+
+synchronizer: sns.pb.o sns.grpc.pb.o synchronizer.o
 	$(CXX) $^ $(LDFLAGS) -g -o $@
 
 .PRECIOUS: %.grpc.pb.cc
@@ -51,7 +54,10 @@ coordinator: coordinator.pb.o coordinator.grpc.pb.o coordinator.o
 	$(PROTOC) -I $(PROTOS_PATH) --cpp_out=. $<
 
 clean:
-	rm -f *.txt *.o *.pb.cc *.pb.h tsc tsd coordinator 
+	rm -f *.txt *.o *.pb.cc *.pb.h tsc tsd coordinator synchronizer
+
+clr:
+	rm -rf *.txt
 
 
 # The following is to test your system and ensure a smoother experience.
